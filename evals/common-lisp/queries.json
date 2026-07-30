@@ -1,0 +1,101 @@
+{
+  "corpus": "cl-cookbook",
+  "baseUrl": "https://lispcookbook.github.io/cl-cookbook/",
+  "registerCommand": "(rla \"https://lispcookbook.github.io/cl-cookbook/\")",
+  "notes": [
+    "Each query lists the page(s) whose chunks should rank highest.",
+    "Pages are relative to base_url; a chunk's full URL = base_url + page.",
+    "type: 'exact' = API/term lookup (favors BM25); 'conceptual' = how-do-I (favors dense embeddings); 'broad' = spans pages or general (tests hybrid + corpus routing).",
+    "Mappings were verified against the live cl-cookbook pages."
+  ],
+  "queries": [
+    { "query": "How do I install a Common Lisp implementation like SBCL?", "pages": ["getting-started.html"], "type": "conceptual" },
+    { "query": "How do I get started with Common Lisp?", "pages": ["getting-started.html"], "type": "broad" },
+    { "query": "How do I set up SLIME in Emacs?", "pages": ["emacs-ide.html"], "type": "conceptual" },
+
+    { "query": "What is the difference between defvar and defparameter?", "pages": ["variables.html"], "type": "exact" },
+    { "query": "How do let and let* create lexical scope?", "pages": ["variables.html"], "type": "conceptual" },
+    { "query": "What are special (dynamic) variables?", "pages": ["variables.html"], "type": "exact" },
+
+    { "query": "How do I define a function with optional and keyword arguments?", "pages": ["functions.html"], "type": "conceptual" },
+    { "query": "What do &optional, &key, and &rest mean in a lambda list?", "pages": ["functions.html"], "type": "exact" },
+    { "query": "How do I return multiple values from a function?", "pages": ["functions.html"], "type": "conceptual" },
+
+    { "query": "How do I create and use a hash table?", "pages": ["data-structures.html"], "type": "conceptual" },
+    { "query": "What is the difference between an alist and a plist?", "pages": ["data-structures.html"], "type": "exact" },
+    { "query": "How do I define a struct with defstruct?", "pages": ["data-structures.html"], "type": "exact" },
+    { "query": "How do I add an element to the front of a list?", "pages": ["data-structures.html"], "type": "conceptual" },
+    { "query": "What are the main data structures in Common Lisp?", "pages": ["data-structures.html"], "type": "broad" },
+
+    { "query": "How do I split a string on a delimiter?", "pages": ["strings.html"], "type": "conceptual" },
+    { "query": "How do I concatenate strings?", "pages": ["strings.html"], "type": "conceptual" },
+    { "query": "How do I print a list of items using format?", "pages": ["strings.html"], "type": "conceptual" },
+    { "query": "How do I convert a string to uppercase?", "pages": ["strings.html"], "type": "exact" },
+
+    { "query": "How do I loop over a list?", "pages": ["iteration.html"], "type": "conceptual" },
+    { "query": "How do I use the loop macro to collect results into a list?", "pages": ["iteration.html"], "type": "conceptual" },
+    { "query": "How do I repeat an action a fixed number of times?", "pages": ["iteration.html"], "type": "conceptual" },
+    { "query": "How do I map a function over a list?", "pages": ["iteration.html"], "type": "conceptual" },
+
+    { "query": "How do I define a class with slots?", "pages": ["clos.html"], "type": "conceptual" },
+    { "query": "How do I define a method on a generic function?", "pages": ["clos.html"], "type": "conceptual" },
+    { "query": "How does inheritance work in CLOS?", "pages": ["clos.html"], "type": "broad" },
+
+    { "query": "How do I write a macro with defmacro?", "pages": ["macros.html"], "type": "conceptual" },
+    { "query": "Why do I need gensym in a macro?", "pages": ["macros.html"], "type": "exact" },
+    { "query": "How do backquote and comma work in a macro?", "pages": ["macros.html"], "type": "conceptual" },
+    { "query": "How do I use macroexpand to debug a macro?", "pages": ["macros.html"], "type": "exact" },
+
+    { "query": "How do I handle errors with handler-case?", "pages": ["error_handling.html"], "type": "exact" },
+    { "query": "How do restarts work in the condition system?", "pages": ["error_handling.html"], "type": "conceptual" },
+    { "query": "How do I define a custom condition with define-condition?", "pages": ["error_handling.html"], "type": "conceptual" },
+
+    { "query": "When should I use eq, eql, equal, or equalp?", "pages": ["equality.html"], "type": "exact" },
+    { "query": "How do I compare two strings for equality?", "pages": ["equality.html"], "type": "conceptual" },
+
+    { "query": "How do I define a package and export symbols?", "pages": ["packages.html"], "type": "conceptual" },
+    { "query": "What does use-package do?", "pages": ["packages.html"], "type": "exact" },
+
+    { "query": "How do I define an ASDF system?", "pages": ["systems.html"], "type": "conceptual" },
+
+    { "query": "How do I create and access an array?", "pages": ["arrays.html"], "type": "conceptual" },
+    { "query": "How do I make a multidimensional array?", "pages": ["arrays.html"], "type": "exact" },
+
+    { "query": "How do I generate a random number?", "pages": ["numbers.html"], "type": "exact" },
+    { "query": "How do I work with rationals and floats?", "pages": ["numbers.html"], "type": "conceptual" },
+
+    { "query": "How do I use regular expressions with cl-ppcre?", "pages": ["regexp.html"], "type": "conceptual" },
+
+    { "query": "How do I read a file line by line?", "pages": ["files.html"], "type": "conceptual" },
+    { "query": "How do I work with pathnames?", "pages": ["files.html"], "type": "conceptual" },
+
+    { "query": "How do I run code in multiple threads?", "pages": ["process.html"], "type": "conceptual" },
+
+    { "query": "How do I run an external shell command?", "pages": ["os.html"], "type": "conceptual" },
+    { "query": "How do I read an environment variable?", "pages": ["os.html"], "type": "exact" },
+
+    { "query": "How do I pass command-line arguments to a script?", "pages": ["scripting.html"], "type": "conceptual" },
+
+    { "query": "How do I write unit tests with FiveAM?", "pages": ["testing.html"], "type": "conceptual" },
+
+    { "query": "How do I trace a function to debug it?", "pages": ["debugging.html"], "type": "exact" },
+
+    { "query": "How do I check the type of a value at runtime?", "pages": ["type.html"], "type": "exact" },
+    { "query": "How do I declare types for optimization?", "pages": ["type.html"], "type": "conceptual" },
+
+    { "query": "How do I profile my code to find bottlenecks?", "pages": ["performance.html"], "type": "conceptual" },
+    { "query": "How do I optimize code for speed with declaim optimize?", "pages": ["performance.html"], "type": "exact" },
+
+    { "query": "How do I build a web server with Hunchentoot?", "pages": ["web.html"], "type": "conceptual" },
+
+    { "query": "How do I connect to a SQL database with Mito?", "pages": ["databases.html"], "type": "conceptual" },
+
+    { "query": "How do I call a C function from Lisp with CFFI?", "pages": ["ffi.html"], "type": "conceptual" },
+
+    { "query": "How do I build a graphical user interface?", "pages": ["gui.html"], "type": "conceptual" },
+
+    { "query": "How do I do pattern matching with trivia?", "pages": ["pattern_matching.html"], "type": "conceptual" },
+
+    { "query": "How do I get the current date and time?", "pages": ["dates_and_times.html"], "type": "conceptual" }
+  ]
+}

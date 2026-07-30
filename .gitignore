@@ -1,0 +1,28 @@
+# Compiled Lisp
+*.fasl
+*.fas
+*.lx64fsl
+*.lx32fsl
+*.dx64fsl
+*.dx32fsl
+*.abcl
+*.lisp-temp
+
+# ASDF
+system-index.txt
+.cache/
+build/
+
+# SLIME / Emacs
+*~
+\#*\#
+.\#*
+.slime/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+*.swp
+.idea/
+.vscode/

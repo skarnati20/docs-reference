@@ -19,4 +19,5 @@
 	       (:file "docs-reference")
 	       (:file "bm25")
 	       (:file "scoring")
-	       (:file "eval")))
+	       (:file "eval")
+	       (:file "cross-encoder")))

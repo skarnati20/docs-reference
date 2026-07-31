@@ -2,6 +2,7 @@
 
 (in-package #:docs-reference)
 
+
 (defvar *ollama-chat-endpoint* "http://localhost:11434/api/chat")
 (defvar *chat-model-name* "qwen3:1.7b")
 

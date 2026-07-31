@@ -2,6 +2,7 @@
 
 (in-package #:docs-reference)
 
+
 (defstruct chunk-with-offsets
   "A chunk of text with its text, and offsets in url content."
   text

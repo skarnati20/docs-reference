@@ -2,6 +2,7 @@
 
 (in-package #:docs-reference)
 
+
 (defvar *ollama-embedding-endpoint* "http://localhost:11434/api/embed")
 (defvar *embedding-model-name* "qwen3-embedding:0.6b")
 

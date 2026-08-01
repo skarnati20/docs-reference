@@ -52,10 +52,12 @@
 
 (defun tokenize-text (text)
   "Lowercase TEXT and split it into a list of term strings, keeping Lisp
-   identifier characters. Drops empty tokens; no stopword removal."
-  (remove-if (lambda (s) (zerop (length s)))
-	     (uiop:split-string (string-downcase text)
-				:separator *token-separators*)))
+   identifier characters. Drops empty tokens; no stopword removal. Applies
+   Porter2 lemmatization to final tokens."
+  (stem-tokens
+   (remove-if (lambda (s) (zerop (length s)))
+	      (uiop:split-string (string-downcase text)
+				 :separator *token-separators*))))
 
 (defparameter *stop-words*
   '("a" "an" "the" "is" "are" "was" "were" "be" "been" "being"

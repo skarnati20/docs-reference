@@ -20,4 +20,5 @@
 	       (:file "bm25")
 	       (:file "scoring")
 	       (:file "eval")
-	       (:file "cross-encoder")))
+	       (:file "cross-encoder")
+	       (:file "lemmatization")))

@@ -42,20 +42,37 @@
       (format t "Error executing curl command ~a~%" e)
       nil)))
 
-(defun rerank-chunks (query chunks &key (top-k nil))
-  "Rerank CHUNKS (document-chunk-slim) by cross-encoder relevance to QUERY.
-   Returns a list of (CHUNK . SCORE) conses in ranked order (TOP-K if given).
-   Hydrates each chunk's text to score it; on reranker error, falls back to the
-   input order with NIL scores."
+(defun rank-chunks-in-order (query chunks &key (top-k nil))
+  "Ranks CHUNKS by revelance to QUERY but does not sort them."
   (if (null chunks)
       nil
       (let* ((texts (mapcar (lambda (slim)
 			      (document-chunk-text (get-full-chunk-from-slim slim)))
 			    chunks))
 	     (scores (score-texts-relevance query texts))
+	     ;; MAPCAR stops at the shortest list, so a NIL scores list (reranker
+	     ;; error) would silently yield no chunks at all; pair with NIL instead.
 	     (ranked (if scores
-			 (sort (mapcar #'cons chunks scores) #'> :key #'cdr)
+			 (mapcar #'cons chunks scores)
 			 (mapcar (lambda (c) (cons c nil)) chunks))))
 	(if top-k
 	    (subseq ranked 0 (min top-k (length ranked)))
 	    ranked))))
+	     
+(defun rerank-chunks (query chunks &key (top-k nil))
+  "Rerank CHUNKS (document-chunk-slim) by cross-encoder relevance to QUERY.
+   Returns a list of (CHUNK . SCORE) conses in ranked order (TOP-K if given).
+   Hydrates each chunk's text to score it; on reranker error, falls back to the
+   input order with NIL scores."
+  (let ((ranked-chunks (rank-chunks-in-order query chunks)))
+    (if (null ranked-chunks)
+	nil
+	(let ((reranked
+		;; A NIL score means the reranker errored: keep the input
+		;; (hybrid) order rather than sorting on NIL.
+		(if (cdr (first ranked-chunks))
+		    (sort ranked-chunks #'> :key #'cdr)
+		    ranked-chunks)))
+	  (if top-k
+	      (subseq reranked 0 (min top-k (length reranked)))
+	      reranked)))))

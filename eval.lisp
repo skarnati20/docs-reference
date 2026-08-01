@@ -89,8 +89,34 @@
       (dolist (r misses)
         (format t "  [~a] ~a~%" (getf r :type) (getf r :query))))))
 
+(defun filter-by-gap (ranked &key (max-gap 10.0) (min-keep 5))
+  "Filters a ranked list to those items whose score is within MAX-GAP
+   of RANKED's top score. Keeps a minimum of MIN-KEEP items."
+  (let* ((best (reduce #'max ranked :key #'cdr))
+	 (kept (remove-if (lambda (x) (< (cdr x) (- best max-gap))) ranked)))
+    (if (< (length kept) min-keep)
+        (subseq (sort (copy-list ranked) #'> :key #'cdr)
+                0 (min min-keep (length ranked)))
+        kept)))
+
+(defun optimize-chunks (query chunks top-k mode &key (max-gap 10.0))
+  "Produce the final ranked chunk list for one eval query.
+   Three modes: (1) None, (2) Re-Rank, (3) Cross-Encoder Filter"
+  (ecase mode
+	(:re-rank (mapcar #'car
+			   (rerank-chunks query
+					  (subseq chunks 0 (min (* top-k 5) (length chunks)))
+					  :top-k top-k)))
+	(:filter (let* ((shortlist (subseq chunks 0 (min (* top-k 5) (length chunks))))
+			(ranked-chunks (rank-chunks-in-order query shortlist))
+			(kept (filter-by-gap ranked-chunks :max-gap max-gap)))
+		   (mapcar #'car (subseq kept 0 (min top-k (length kept))))))
+	(:none (if top-k
+		   (subseq chunks 0 (min top-k (length chunks)))
+		   chunks))))
+
 (defun run-eval (corpora eval-file-path
-                 &key (top-k 10) (output-file nil) (run-notes nil))
+                 &key (top-k 10) (output-file nil) (run-notes nil) (mode :none) (max-gap 10.0))
   "Evaluate how well SEARCH-CORPORA ranks chunks for the queries in
    EVAL-FILE-PATH (a JSON file). Writes a JSON report (overall + by-type
    MRR / Recall@k / Hit@k, plus per-query results) to stdout and, if given,
@@ -106,12 +132,13 @@
                (type (cdr (assoc :type query-pairs)))
                (ref-pages (cdr (assoc :pages query-pairs)))
                (ref-urls (mapcar (lambda (p) (uiop:strcat base-url p)) ref-pages))
-               ;; one bad query (e.g. embedding failure) shouldn't abort the run
-               (chunks (handler-case (search-corpora corpora query :top-k top-k)
+               (chunks (handler-case (search-corpora corpora query)
                          (error (e)
                            (format t "  ! query failed (~a): ~a~%" query e)
                            nil)))
-               (ret-urls (mapcar #'document-chunk-slim-url chunks)))
+               (final-chunks (optimize-chunks query chunks top-k mode
+                                             :max-gap max-gap))
+               (ret-urls (mapcar #'document-chunk-slim-url final-chunks)))
           (push (append (list :query query :type type)
                         (calculate-score ref-urls ret-urls))
                 results)))

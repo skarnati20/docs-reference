@@ -7,6 +7,7 @@
   :depends-on (#:uiop #:cl-json #:drakma #:plump #:clss #:lparallel)
   :components ((:file "package")
 	       (:file "stream")
+	       (:file "content-types")
 	       (:file "fetcher")
 	       (:file "ollama-helper")
 	       (:file "ollama-embeddings")

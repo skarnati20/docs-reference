@@ -3,17 +3,26 @@
 (in-package #:docs-reference)
 
 (defun fetch-url-content (url)
-  "Fetches and parses the HTML at URL. Bytes that aren't valid in the
-   response's declared encoding are replaced with #\\? instead of signaling,
-   so one malformed page cannot abort a crawl."
-  (handler-bind
-      ((flexi-streams:external-format-encoding-error
-	 (lambda (c)
-	   (declare (ignore c))
-	   (use-value #\?))))
-    (let* ((html-content (drakma:http-request url))
-	   (parsed-html (plump:parse html-content)))
-      parsed-html)))
+  "Fetches and parses the HTML at URL, or NIL when URL is not HTML."
+  (if (not (extractable-url-p url))
+      nil
+      (handler-case
+	  (handler-bind
+	      ((flexi-streams:external-format-encoding-error
+		 (lambda (c)
+		   (declare (ignore c))
+		   (use-value #\?))))
+	    (multiple-value-bind (body status)
+		(drakma:http-request url)
+	      (cond
+		((not (eql status 200)) nil)
+		;; Drakma returns a byte vector for non-text content types, and
+		;; PLUMP:PARSE only takes a string.
+		((not (stringp body)) nil)
+		(t (plump:parse body)))))
+	(error (e)
+	  (format t "Error fetching ~a: ~a~%" url e)
+	  nil))))
 
 (defun first-node (nodes)
   "First node of a CLSS result vector, or NIL if the vector is empty."
@@ -24,21 +33,36 @@
   "h1, h2, h3, h4, h5, h6, p, li, pre, blockquote, td, th"
   "CSS selector for the text-bearing content tags worth extracting.")
 
-(defun fetch-url-text (url)
-  "Fetches readable text from a URL by pulling only content-bearing tags
+(defun extract-html-text (url)
+  "Readable text from the HTML at URL, pulling only content-bearing tags
    (headings, paragraphs, list items, code, etc.) from the main <article>
    or <main> region. This excludes scripts, styles, and nav chrome."
-  (let* ((dom (fetch-url-content url))
-	 (region (or (first-node (clss:select "article" dom))
-		     (first-node (clss:select "main" dom))
-		     dom))
-	 (nodes (clss:select *content-selectors* region)))
-    (with-output-to-string (out)
-      (loop for node across nodes
-	    for text = (string-trim '(#\Space #\Newline #\Tab) (plump:text node))
-	    when (plusp (length text))
-	      do (write-string text out)
-		 (terpri out)))))
+  (let ((dom (fetch-url-content url)))
+    (if (null dom)
+	""
+	(let* ((region (or (first-node (clss:select "article" dom))
+			   (first-node (clss:select "main" dom))
+			   dom))
+	       (nodes (clss:select *content-selectors* region)))
+	  (with-output-to-string (out)
+	    (loop for node across nodes
+		  for text = (string-trim '(#\Space #\Newline #\Tab) (plump:text node))
+		  when (plusp (length text))
+		    do (write-string text out)
+		       (terpri out)))))))
+
+(defun fetch-url-text (url)
+  "Text for URL, dispatched on its content kind. Kinds without an extractor
+   yield the empty string so an unsupported link cannot break a crawl.
+   To support a new kind: add it to *EXTRACTABLE-KINDS* and give it a branch."
+  (let ((kind (url-content-kind url)))
+    (cond
+      ((eq kind :html) (extract-html-text url))
+      ;; PDFs are recognised but not extracted yet - drop in a text extractor
+      ;; here and add :pdf to *EXTRACTABLE-KINDS* to start indexing them.
+      ((eq kind :pdf) "")
+      ;; :UNKNOWN - an extension we do not recognise, so assume it is binary.
+      (t ""))))
 
 (defun trim-final (s char)
   "Return S without its last character if that character is CHAR."
@@ -68,13 +92,15 @@
 (defun fetch-url-links (url &key (tag "a") (same-base t))
   "Fetches links referenced in existing link."
   (let ((parsed-html (fetch-url-content url)))
-    (remove-duplicates
-     (loop for node across (clss:select tag parsed-html)
-	   for href = (convert-ref-link url (plump:attribute node "href"))
-	   when (and href
-		     (or (not same-base) (uiop:string-prefix-p url href)))
-	     collect href)
-     :test #'string=)))
+    (when parsed-html
+      (remove-duplicates
+       (loop for node across (clss:select tag parsed-html)
+	     for href = (convert-ref-link url (plump:attribute node "href"))
+	     when (and href
+		       (extractable-url-p href)
+		       (or (not same-base) (uiop:string-prefix-p url href)))
+	       collect href)
+       :test #'string=))))
 
 (defun fetch-url-links-recursive (start-url &key (depth 3) (tag "a") (same-base t))
   "Fetches links referenced in existing link (recursive till depth)."

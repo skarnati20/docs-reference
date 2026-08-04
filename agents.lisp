@@ -3,8 +3,36 @@
 (in-package :docs-reference)
 
 
-(defun rewrite-queries (user-query)
+(defun write-hyde-query (user-query)
+  "Write a theoretical answer to USER-QUERY which allows us to get
+   closer to the neighborhood of the true answer. Returns the passage, or
+   USER-QUERY unchanged if the model gave nothing back."
+  (let* ((prompt
+	   (format nil
+		   "Write a short passage of technical documentation that would ~
+                    answer the question below, as if it were an excerpt from ~
+                    the reference manual it belongs to.~%~
+                    ~%Rules:~
+                    ~%- Output the passage ONLY, with no preamble or commentary~
+                    ~%- Infer the language or system from the question itself, ~
+                    and use its real names and idioms - never substitute ~
+                    another language's~
+                    ~%- Include a short code example where one is natural~
+                    ~%- Keep it under 120 words~
+                    ~%- If unsure of the exact answer, still write the most ~
+                    plausible passage; it is only used to locate documents~
+                    ~%~%Question: ~A"
+		   user-query))
+	 (response (run-ollama-chat prompt))
+	 (passage (and response
+		       (string-trim '(#\Space #\Newline #\Tab #\Return) response))))
+    (if (and passage (plusp (length passage)))
+	passage
+	user-query)))
+
+(defun rewrite-queries (user-query &key (use-hyde nil))
   "Decompose USER-Query into 1-3 focused sub-queries for retrieval.
+   When USE-HYDE, append a hypothetical answer passage as an extra query.
    Returns a list of query strings."
   (let* ((prompt
 	   (format nil
@@ -24,19 +52,25 @@
                                        (string-trim '(#\Space #\Tab #\- #\* #\1 #\2 #\3 #\.)
                                                     line))
                                      (uiop:split-string response
-                                                        :separator '(#\Newline))))))
-    (if queries
-	queries
-	(list user-query))))
+                                                        :separator '(#\Newline)))))
+	 (base-queries (or queries (list user-query)))
+	 (hyde-queries (when use-hyde (list (write-hyde-query user-query)))))
+    (append base-queries hyde-queries)))
 
 (defun search-fanout (corpora sub-queries &key (top-k 10))
   "Run hybrid search across CORPORA for each of SUB-QUERIES and fuse the
-   per-sub-query rankings with RRF. Returns document-chunk-slim in ranked
-   order. RRF merges the same chunk found by multiple sub-queries (they are
-   the same stored slim object, so eq identifies them)."
-  (reciprocal-rank-fusion
-   (loop for query in sub-queries
-	 collect (search-corpora corpora query :top-k top-k))))
+   per-sub-query rankings with RRF, then cap the fused ranking at TOP-K.
+   Each sub-search is unbounded so RRF sees full rankings and a chunk found
+   by several sub-queries is scored on its true rank in each. Returns
+   document-chunk-slim in ranked order. RRF merges the same chunk across
+   sub-queries (they are the same stored slim object, so eq identifies them)."
+  (let ((fused
+	  (reciprocal-rank-fusion
+	   (loop for query in sub-queries
+		 collect (search-corpora corpora query)))))
+    (if top-k
+	(subseq fused 0 (min top-k (length fused)))
+	fused)))
 
 (defun assess-sufficiency (user-query retrieved-chunks)
   "Evaluate whether RETRIEVED-CHUNKS provide sufficient context
@@ -135,7 +169,8 @@ Rules:
 
 (defun gather-chunks (corpora user-query &key (past-chunks nil)
 					      (max-iterations 3)
-					      (top-k 10))
+					      (top-k 10)
+					      (use-hyde nil))
   "Retrieve/assess/refine over CORPORA for USER-QUERY; return the accumulated
    chunks once sufficient (or the best at the iteration cap), NIL if none.
    PAST-CHUNKS are unioned with a fresh search for USER-QUERY as the seed set."
@@ -158,7 +193,9 @@ Rules:
                          (additions (remove-if (lambda (c) (member c all-chunks :test #'eq))
                                                new-chunks)))
                     (refine-loop (append all-chunks additions) (- iterations 1))))))))
-    (let* ((fresh (search-fanout corpora (rewrite-queries user-query) :top-k top-k))
+    (let* ((fresh (search-fanout corpora
+				 (rewrite-queries user-query :use-hyde use-hyde)
+				 :top-k top-k))
            (initial (append fresh
                             (remove-if (lambda (c) (member c fresh :test #'eq))
                                        past-chunks))))
@@ -169,14 +206,16 @@ Rules:
 (defun agentic-rag (corpora user-query &key history
 					    (past-chunks nil)
 					    (max-iterations 3)
-					    (top-k 10))
+					    (top-k 10)
+					    (use-hyde nil))
   "Gather chunks then synthesize an answer. HISTORY threads to synthesis (nil =
    single-shot); PAST-CHUNKS are unioned into retrieval. Returns a cons
    (ANSWER-STRING . CHUNKS) - the full gathered chunk set, nil if none."
   (let ((chunks (gather-chunks corpora user-query
 			       :past-chunks past-chunks
 			       :max-iterations max-iterations
-			       :top-k top-k)))
+			       :top-k top-k
+			       :use-hyde use-hyde)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.
 	(cons (format nil "(No documents were used to answer this.)~%~%~A"
@@ -185,3 +224,38 @@ Rules:
 	(let ((new-chunks (remove-if (lambda (c) (member c past-chunks :test #'eq))
 				     chunks)))
 	  (cons (synthesize-answer user-query new-chunks :history history) chunks)))))
+
+(defun gather-chunks-no-agents (corpora user-query &key (past-chunks nil)
+					                (top-k 10)
+					                (use-hyde nil))
+  "Retrieves chunks without any LLM calls (except query rewriting). Searches CORPORA
+   for relevant chunks for USER-QUERY."
+  (let* ((fresh (search-fanout corpora
+			       (rewrite-queries user-query :use-hyde use-hyde)
+			       :top-k nil))
+	 (initial (append fresh
+			  (remove-if (lambda (c) (member c fresh :test #'eq))
+				     past-chunks))))
+    (if top-k
+	(subseq initial 0 (min top-k (length initial)))
+	initial)))
+
+(defun default-rag (corpora user-query &key history
+					    (past-chunks nil)
+					    (top-k 10)
+					    (use-hyde nil))
+  "Gather chunks with traditional RAG approach, no LLMs."
+  (let ((chunks (gather-chunks-no-agents corpora user-query
+					  :past-chunks past-chunks
+					  :top-k top-k
+					  :use-hyde use-hyde)))
+    (if (null chunks)
+	;; No relevant docs: fall back to a plain chat, flagged up front.
+	(cons (format nil "(No documents were used to answer this.)~%~%~A"
+		      (run-ollama-chat user-query :messages history))
+	      nil)
+	(let ((new-chunks (remove-if (lambda (c) (member c past-chunks :test #'eq))
+				     chunks)))
+	  (cons (synthesize-answer user-query new-chunks :history history) chunks)))))
+    
+			    

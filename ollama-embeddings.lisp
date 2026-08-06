@@ -33,7 +33,9 @@ of embeddings, one per input, in order."
 	    (s response)
 	  (let* ((json-as-list (json:decode-json s))
 		 (embeddings (cdr (assoc :embeddings json-as-list))))
-	    embeddings)))
+	    ;; cl-json decodes JSON arrays to lists; coerce here so the rest of
+	    ;; the system only ever handles packed EMBEDDING vectors.
+	    (mapcar #'to-embedding embeddings))))
     (error (e)
       (format t "Error executing curl command ~a~%" e)
       nil)))

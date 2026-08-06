@@ -15,9 +15,12 @@
 	   (order-chunks-by-embedding (corpus-chunks corpus) query-embedding))
 	 (bm25-order
 	   (order-chunks-by-bm25 (corpus-bm25-chunk-index corpus) query))
+	 (colbert-order
+	   (order-chunks-by-colbert (corpus-chunks corpus)
+				    (run-colbert-embeddings query)))
 	 (fused
 	   (reciprocal-rank-fusion
-	    (list embedding-order bm25-order))))
+	    (list embedding-order bm25-order colbert-order))))
     (if top-k
 	(subseq fused 0 (min top-k (length fused)))
 	fused)))
@@ -31,9 +34,11 @@
 	   (order-corpora-chunks-by-embedding corpora query-embedding))
 	 (bm25-order
 	   (order-corpora-chunks-by-bm25 corpora query))
+	 (colbert-order
+	   (order-corpora-by-colbert corpora (run-colbert-embeddings query)))
 	 (fused
 	   (reciprocal-rank-fusion
-	    (list embedding-order bm25-order))))
+	    (list embedding-order bm25-order colbert-order))))
     (if top-k
 	(subseq fused 0 (min top-k (length fused)))
 	fused)))

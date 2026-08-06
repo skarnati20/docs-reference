@@ -3,7 +3,7 @@
 (in-package :docs-reference)
 
 
-;;;; Document Ordering
+;;;; Dense Vector
 
 
 (defun order-chunks-by-embedding (chunks query-embedding)
@@ -23,6 +23,9 @@
     (order-chunks-by-embedding chunks query-embedding)))
   
 
+;;;; BM25
+
+
 (defun order-chunks-by-bm25 (bm25-index query)
   "Orders chunks by bm25 ranking algorithm to QUERY text."
   (order-docs bm25-index (tokenize-text query)))
@@ -32,6 +35,31 @@
   (let ((chunk-index
 	  (full-chunk-index-from-corpora corpora)))
     (order-chunks-by-bm25 chunk-index query)))
+
+
+;;;; ColBERT
+
+
+(defun order-chunks-by-colbert (chunks query-embedding)
+  "Order CHUNKS by ColBERT similarity to QUERY-EMBEDDING (precomputed)."
+  (let ((scored-chunks
+	  (loop for chunk in chunks
+		collect (cons chunk
+			      (score-colbert-embeddings
+			       query-embedding
+			       (chunk-colbert-embeddings chunk))))))
+    (mapcar #'car (sort scored-chunks #'> :key #'cdr))))
+
+(defun order-corpora-by-colbert (corpora query-embedding)
+  "Order CORPORA chunks by ColBERT similarity to QUERY-EMBEDDING (precomputed)."
+  (let ((chunks
+	  (loop for corpus in corpora
+		append (corpus-chunks corpus))))
+    (order-chunks-by-colbert chunks query-embedding)))
+
+
+;;;; Fusion
+
 
 (defun reciprocal-rank-fusion (orders &key (k 60))
   "Implements the RRF algorithm which takes an ranked

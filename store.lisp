@@ -51,13 +51,17 @@
    :initarg) survive as single tokens.")
 
 (defun tokenize-text (text)
+  "Lowercase TEXT and split it into a list of term string, keeping Lisp
+   identifier characters. Drops empty tokens; no stopword removal."
+  (remove-if (lambda (s) (zerop (length s)))
+	     (uiop:split-string (string-downcase text)
+				:separator *token-separators*)))
+
+(defun tokenize-text-and-lemmatize (text)
   "Lowercase TEXT and split it into a list of term strings, keeping Lisp
    identifier characters. Drops empty tokens; no stopword removal. Applies
    Porter2 lemmatization to final tokens."
-  (stem-tokens
-   (remove-if (lambda (s) (zerop (length s)))
-	      (uiop:split-string (string-downcase text)
-				 :separator *token-separators*))))
+  (stem-tokens (tokenize-text text)))
 
 (defparameter *stop-words*
   '("a" "an" "the" "is" "are" "was" "were" "be" "been" "being"
@@ -74,7 +78,7 @@
   "Lowercase TEXT and split it into a list of term strings, removing
    filler words. Drops empty tokens."
   (remove-if (lambda (s) (member s *stop-words*))
-	     (tokenize-text text)))
+	     (tokenize-text-and-lemmatize text)))
 
 (defun split-into-chunk-offsets (text &key (chunk-size *default-chunk-size*)
 				           (overlap *chunk-overlap*))
@@ -108,6 +112,44 @@
 		   (setf start (- actual-end overlap)))))
     (nreverse chunks)))
 
+;;;; ColBERT Cache Layout
+
+
+(defun sanitize-url (url)
+  "URL reduced to characters that are safe in a path component."
+  (map 'string
+       (lambda (c) (if (or (alphanumericp c) (find c "._-")) c #\_))
+       url))
+
+(defun chunk-colbert-filename (url start-offset end-offset)
+  "Cache filename for one chunk's ColBERT embeddings. A chunk is identified by
+   its url and offsets, so that triple is the cache key."
+  (format nil "colbert/~a/~a-~a.bin" (sanitize-url url) start-offset end-offset))
+
+(defun corpus-cache-directory (url)
+  "Directory holding every cached chunk embedding for the page at URL."
+  (embeddings-path (format nil "colbert/~a/" (sanitize-url url))))
+
+(defun clear-corpus-cache (url)
+  "Drops the cached embeddings for URL. Chunk offsets shift whenever the page
+   text changes, so re-indexing writes new filenames and would otherwise leave
+   the previous run's files orphaned forever."
+  (uiop:delete-directory-tree (corpus-cache-directory url)
+			      :validate t
+			      :if-does-not-exist :ignore))
+
+(defun chunk-colbert-embeddings (slim-chunk)
+  "Cached ColBERT embeddings for SLIM-CHUNK, or NIL when they were never
+   written (indexing ran with the ColBERT server down, say)."
+  (read-embeddings (chunk-colbert-filename
+		    (document-chunk-slim-url slim-chunk)
+		    (document-chunk-slim-start-offset slim-chunk)
+		    (document-chunk-slim-end-offset slim-chunk))))
+
+
+;;;; Corpus Building
+
+
 (defun chunk-url-text-to-corpus (corpus url text &key (chunk-size *default-chunk-size*)
 			                      (overlap *chunk-overlap*))
   "Split TEXT it into chunks, compute embeddings,
@@ -116,13 +158,18 @@
 	(count 0))
     (dolist (chunk chunks)
       (let* ((chunk-text (chunk-with-offsets-text chunk))
+	     (start-offset (chunk-with-offsets-start-offset chunk))
+	     (end-offset (chunk-with-offsets-end-offset chunk))
 	     (embedding (run-ollama-embedding chunk-text))
-	     (tokens (tokenize-text chunk-text)))
+	     (tokens (tokenize-text-and-lemmatize chunk-text)))
+	;; ColBERT gives one vector per token, far too much to keep in the
+	;; slim chunk, so it is cached on disk under the chunk's identity and
+	;; read back by CHUNK-COLBERT-EMBEDDINGS when scoring.
+	(store-embeddings (run-colbert-embeddings chunk-text)
+			  (chunk-colbert-filename url start-offset end-offset))
 	(push (make-document-chunk-slim :url url
-					:start-offset
-					(chunk-with-offsets-start-offset chunk)
-					:end-offset
-					(chunk-with-offsets-end-offset chunk)
+					:start-offset start-offset
+					:end-offset end-offset
 					:embedding embedding
 					:tokens tokens)
 	      (corpus-chunks corpus))
@@ -132,6 +179,9 @@
 (defun make-corpus-from-url (url)
   (let* ((url-text (fetch-url-text url))
 	 (corpus (make-corpus :name url)))
+    ;; Start from a clean cache: the previous run's files are keyed by offsets
+    ;; that this text may no longer produce.
+    (clear-corpus-cache url)
     (chunk-url-text-to-corpus corpus url url-text)
     ;; Corpus vector = centroid of its chunk embeddings (no LLM summary).
     (setf (corpus-keywords corpus)

@@ -20,9 +20,9 @@
        (- word #x100000000)
        word)))
 
-(defun embeddings-path (filename &key (path *storage-path*))
-  "Full path to the file holding FILENAME's embeddings. Single place that
-   knows how a name and the storage root are joined."
+(defun cache-path (filename &key (path *storage-path*))
+  "Full path to the cache file named FILENAME. Single place that knows how a
+   name and the storage root are joined."
   (uiop:subpathname (uiop:ensure-directory-pathname path) filename))
 
 (defun store-embeddings (embeddings filename &key (path *storage-path*))
@@ -30,7 +30,7 @@
    is empty - a failed embedding must never be cached, or the empty result
    would be served forever in place of a retry."
   (when embeddings
-    (let ((file (embeddings-path filename :path path))
+    (let ((file (cache-path filename :path path))
 	  (n-tokens (length embeddings))
 	  (dim (length (the embedding (first embeddings)))))
       (ensure-directories-exist file)
@@ -50,7 +50,7 @@
   "Reads EMBEDDINGS from PATH. Returns a list of EMBEDDINGs, or NIL when the
    file is missing, written by another format version, or truncated - callers
    treat every one of those the same way, by recomputing."
-  (let ((file (embeddings-path filename :path path)))
+  (let ((file (cache-path filename :path path)))
     (when (probe-file file)
       (handler-case
 	  (with-open-file (in file :element-type '(unsigned-byte 32))
@@ -64,4 +64,26 @@
 				(dotimes (i dim embedding)
 				  (setf (aref embedding i)
 					(u32-to-single (read-byte in)))))))))
+	(error () nil)))))
+
+(defun store-text (text filename &key (path *storage-path*))
+  "Stores TEXT at PATH. Returns the file written, or NIL for empty TEXT -
+   FETCH-URL-TEXT yields \"\" for a failed fetch or an unsupported content
+   type, and caching that would serve emptiness in place of a retry."
+  (when (plusp (length text))
+    (let ((file (cache-path filename :path path)))
+      (ensure-directories-exist file)
+      (with-open-file (out file :direction :output
+				:if-exists :supersede
+				:if-does-not-exist :create
+				:external-format :utf-8)
+	(write-string text out))
+      file)))
+
+(defun read-text (filename &key (path *storage-path*))
+  "Reads text from PATH, or NIL when the file is missing or unreadable."
+  (let ((file (cache-path filename :path path)))
+    (when (probe-file file)
+      (handler-case
+	  (uiop:read-file-string file :external-format :utf-8)
 	(error () nil)))))

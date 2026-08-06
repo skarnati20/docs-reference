@@ -128,7 +128,13 @@
 
 (defun corpus-cache-directory (url)
   "Directory holding every cached chunk embedding for the page at URL."
-  (embeddings-path (format nil "colbert/~a/" (sanitize-url url))))
+  (cache-path (format nil "colbert/~a/" (sanitize-url url))))
+
+(defun page-text-filename (url)
+  "Cache filename for the extracted text of the page at URL. One file per
+   page, so re-indexing overwrites it - unlike the chunk embeddings, whose
+   names encode offsets and so strand their predecessors."
+  (format nil "text/~a.txt" (sanitize-url url)))
 
 (defun clear-corpus-cache (url)
   "Drops the cached embeddings for URL. Chunk offsets shift whenever the page
@@ -182,6 +188,9 @@
     ;; Start from a clean cache: the previous run's files are keyed by offsets
     ;; that this text may no longer produce.
     (clear-corpus-cache url)
+    ;; Cache the text the offsets are computed against, so hydration slices the
+    ;; same string that was chunked even if the page changes later.
+    (store-text url-text (page-text-filename url))
     (chunk-url-text-to-corpus corpus url url-text)
     ;; Corpus vector = centroid of its chunk embeddings (no LLM summary).
     (setf (corpus-keywords corpus)
@@ -201,7 +210,12 @@
   (let* ((url (document-chunk-slim-url slim-chunk))
 	 (start (document-chunk-slim-start-offset slim-chunk))
 	 (end (document-chunk-slim-end-offset slim-chunk))
-	 (url-text (fetch-url-text url))
+	 ;; Cache-aside: chunks indexed before the text cache existed pay one
+	 ;; fetch to warm it, rather than one fetch per hydration forever.
+	 (url-text (or (read-text (page-text-filename url))
+		       (let ((text (fetch-url-text url)))
+			 (store-text text (page-text-filename url))
+			 text)))
 	 (chunk-text (subseq url-text start end))
 	 (full-chunk (make-document-chunk :url url
 					  :text chunk-text)))

@@ -215,8 +215,8 @@ Rules:
                             (remove-if (lambda (c) (member c fresh :test #'eq))
                                        past-chunks))))
       (if (null initial)
-          nil
-          (refine-loop initial max-iterations)))))
+	  nil
+	  (refine-loop initial max-iterations)))))
 
 (defun agentic-rag (corpora user-query &key history
 					    (past-chunks nil)
@@ -245,10 +245,13 @@ Rules:
 	  (cons (synthesize-answer user-query new-chunks :history history) chunks)))))
 
 (defun gather-chunks-no-agents (corpora user-query &key (past-chunks nil)
-					                (top-k 10)
+					                (top-k 30)
 					                (use-rewrite t)
 					                (use-hyde nil)
-					                (methods *default-search-methods*))
+					                (methods *default-search-methods*)
+					                (rerank nil)
+					                (rerank-start 0)
+					                (rerank-end nil))
   "Retrieves chunks without any LLM calls (except query rewriting). Searches CORPORA
    for relevant chunks for USER-QUERY."
   (let* ((fresh (search-fanout corpora
@@ -259,24 +262,37 @@ Rules:
 			       :methods methods))
 	 (initial (append fresh
 			  (remove-if (lambda (c) (member c fresh :test #'eq))
-				     past-chunks))))
+				     past-chunks)))
+	 ;; Rerank before the cut, so the window can promote a chunk from
+	 ;; beyond TOP-K into the result rather than only reordering it.
+	 (ranked (if rerank
+		     (rerank-window user-query initial
+				    :start rerank-start
+				    :end rerank-end)
+		     initial)))
     (if top-k
-	(subseq initial 0 (min top-k (length initial)))
-	initial)))
+	(subseq ranked 0 (min top-k (length ranked)))
+	ranked)))
 
 (defun default-rag (corpora user-query &key history
 					    (past-chunks nil)
-					    (top-k 10)
+					    (top-k 30)
 					    (use-rewrite t)
 					    (use-hyde nil)
-					    (methods *default-search-methods*))
+					    (methods *default-search-methods*)
+					    (rerank nil)
+					    (rerank-start 0)
+					    (rerank-end nil))
   "Gather chunks with traditional RAG approach, no LLMs."
   (let ((chunks (gather-chunks-no-agents corpora user-query
 					  :past-chunks past-chunks
 					  :top-k top-k
 					  :use-rewrite use-rewrite
 					  :use-hyde use-hyde
-					  :methods methods)))
+					  :methods methods
+					  :rerank rerank
+					  :rerank-start rerank-start
+					  :rerank-end rerank-end)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.
 	(cons (format nil "(No documents were used to answer this.)~%~%~A"
@@ -293,9 +309,13 @@ Rules:
 					(top-k 10)
 					(use-rewrite t)
 					(use-hyde nil)
-					(methods *default-search-methods*))
+					(methods *default-search-methods*)
+					(rerank nil)
+					(rerank-start 0)
+					(rerank-end nil))
   "Answers USER-QUERY over CORPORA, using the agentic pipeline when AGENTIC and
-   the plain one otherwise. Returns a cons (ANSWER-STRING . CHUNKS)."
+   the plain one otherwise. RERANK applies to the plain pipeline only.
+   Returns a cons (ANSWER-STRING . CHUNKS)."
   (if agentic
       (agentic-rag corpora user-query
 		   :history history
@@ -311,4 +331,7 @@ Rules:
 	:top-k top-k
 	:use-rewrite use-rewrite
 	:use-hyde use-hyde
-	:methods methods)))
+	:methods methods
+	:rerank rerank
+	:rerank-start rerank-start
+	:rerank-end rerank-end)))

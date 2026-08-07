@@ -76,3 +76,18 @@
 	  (if top-k
 	      (subseq reranked 0 (min top-k (length reranked)))
 	      reranked)))))
+
+(defun rerank-window (query chunks &key (start 0) (end nil))
+  "CHUNKS with the slice [START, END) reordered by cross-encoder relevance to
+   QUERY. Ranks before START keep their position, so a strong head cannot be
+   demoted; ranks from END on are left untouched. END defaults to the end of
+   CHUNKS."
+  (let* ((len (length chunks))
+	 (start (min start len))
+	 (end (max start (min (or end len) len)))
+	 (window (subseq chunks start end)))
+    (if (null window)
+	chunks
+	(append (subseq chunks 0 start)
+		(mapcar #'car (rerank-chunks query window))
+		(subseq chunks end)))))

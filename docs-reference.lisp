@@ -36,38 +36,63 @@
   (format-retrieved-chunks
    (search-corpora *corpora* query :top-k top-k)))
 
-(defun docs-search (query)
-  "Searches by doing a direct search on all of *CORPORA*"
-  (car (agentic-rag *corpora* query)))
+(defun run-rag (query &key history
+			   (past-chunks nil)
+			   (agentic t)
+			   (max-iterations 3)
+			   (top-k 10)
+			   (use-rewrite t)
+			   (use-hyde nil))
+  "Answers QUERY over *CORPORA*, using the agentic pipeline when AGENTIC and
+   the plain one otherwise. Returns a cons (ANSWER-STRING . CHUNKS)."
+  (if agentic
+      (agentic-rag *corpora* query
+		   :history history
+		   :past-chunks past-chunks
+		   :max-iterations max-iterations
+		   :top-k top-k
+		   :use-rewrite use-rewrite
+		   :use-hyde use-hyde)
+      (default-rag *corpora* query
+	:history history
+	:past-chunks past-chunks
+	:top-k top-k
+	:use-rewrite use-rewrite
+	:use-hyde use-hyde)))
 
-(defun docs-search-async (query)
+(defun docs-search (query &rest options)
+  "Searches by doing a direct search on all of *CORPORA*"
+  (car (apply #'run-rag query options)))
+
+(defun docs-search-async (query &rest options)
   "Searches by doing a direct search on all of *CORPORA*
    in the background."
   (in-background (:name (format nil "search ~a" query))
-    (let ((answer (docs-search query)))
+    (let ((answer (apply #'docs-search query options)))
       (format t "~%=== ANSWER (~a) ===~%~a~%" query answer)
       answer)))
 
-(defun docs-chat (query)
+(defun docs-chat (query &rest options)
   "Answer QUERY over *CORPORA* with rolling chat history in *CHAT-SESSION*.
    Returns the answer string."
   (unless *chat-session*
     (setf *chat-session* (make-chat-session)))
   (let* ((session *chat-session*)
 	 (history (chat-session-to-ollama-messages session))
-	 (result (agentic-rag *corpora* query
-			      :history history
-			      :past-chunks (chat-session-all-chunks session)))
+	 (result (apply #'run-rag query
+			:history history
+			:past-chunks (chat-session-all-chunks session)
+			options))
 	 (answer (car result))
 	 (chunks (cdr result)))
     (add-query session query chunks)
     (register-response session answer)
     answer))
 
-(defun docs-chat-async (query)
+(defun docs-chat-async (query &rest options)
   "Runs DOCS-CHAT in the background, keeping the rolling chat history."
   (in-background (:name (format nil "chat ~a" query))
-    (let ((answer (docs-chat query)))
+    (let ((answer (apply #'docs-chat query options)))
       (format t "~%=== ANSWER (~a) ===~%~a~%" query answer)
       answer)))
 
@@ -81,17 +106,17 @@
 (defun rla (base-url)
   (register-link-async base-url))
 
-(defun ds (query)
-  (docs-search query))
+(defun ds (query &rest options)
+  (apply #'docs-search query options))
 
-(defun dsa (query)
-  (docs-search-async query))
+(defun dsa (query &rest options)
+  (apply #'docs-search-async query options))
 
-(defun dc (query)
-  (docs-chat query))
+(defun dc (query &rest options)
+  (apply #'docs-chat query options))
 
-(defun dca (query)
-  (docs-chat-async query))
+(defun dca (query &rest options)
+  (apply #'docs-chat-async query options))
 
 
 ;;;; Printing

@@ -57,6 +57,13 @@
 	 (hyde-queries (when use-hyde (list (write-hyde-query user-query)))))
     (append base-queries hyde-queries)))
 
+(defun build-search-queries (user-query &key (use-rewrite t) (use-hyde nil))
+  "Query strings to fan out over, applying decomposition and HyDE per flag."
+  (if use-rewrite
+      (rewrite-queries user-query :use-hyde use-hyde)
+      (cons user-query
+	    (when use-hyde (list (write-hyde-query user-query))))))
+
 (defun search-fanout (corpora sub-queries &key (top-k 10))
   "Run hybrid search across CORPORA for each of SUB-QUERIES and fuse the
    per-sub-query rankings with RRF, then cap the fused ranking at TOP-K.
@@ -170,6 +177,7 @@ Rules:
 (defun gather-chunks (corpora user-query &key (past-chunks nil)
 					      (max-iterations 3)
 					      (top-k 10)
+					      (use-rewrite t)
 					      (use-hyde nil))
   "Retrieve/assess/refine over CORPORA for USER-QUERY; return the accumulated
    chunks once sufficient (or the best at the iteration cap), NIL if none.
@@ -194,7 +202,9 @@ Rules:
                                                new-chunks)))
                     (refine-loop (append all-chunks additions) (- iterations 1))))))))
     (let* ((fresh (search-fanout corpora
-				 (rewrite-queries user-query :use-hyde use-hyde)
+				 (build-search-queries user-query
+						       :use-rewrite use-rewrite
+						       :use-hyde use-hyde)
 				 :top-k top-k))
            (initial (append fresh
                             (remove-if (lambda (c) (member c fresh :test #'eq))
@@ -207,6 +217,7 @@ Rules:
 					    (past-chunks nil)
 					    (max-iterations 3)
 					    (top-k 10)
+					    (use-rewrite t)
 					    (use-hyde nil))
   "Gather chunks then synthesize an answer. HISTORY threads to synthesis (nil =
    single-shot); PAST-CHUNKS are unioned into retrieval. Returns a cons
@@ -215,6 +226,7 @@ Rules:
 			       :past-chunks past-chunks
 			       :max-iterations max-iterations
 			       :top-k top-k
+			       :use-rewrite use-rewrite
 			       :use-hyde use-hyde)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.
@@ -227,11 +239,14 @@ Rules:
 
 (defun gather-chunks-no-agents (corpora user-query &key (past-chunks nil)
 					                (top-k 10)
+					                (use-rewrite t)
 					                (use-hyde nil))
   "Retrieves chunks without any LLM calls (except query rewriting). Searches CORPORA
    for relevant chunks for USER-QUERY."
   (let* ((fresh (search-fanout corpora
-			       (rewrite-queries user-query :use-hyde use-hyde)
+			       (build-search-queries user-query
+						     :use-rewrite use-rewrite
+						     :use-hyde use-hyde)
 			       :top-k nil))
 	 (initial (append fresh
 			  (remove-if (lambda (c) (member c fresh :test #'eq))
@@ -243,11 +258,13 @@ Rules:
 (defun default-rag (corpora user-query &key history
 					    (past-chunks nil)
 					    (top-k 10)
+					    (use-rewrite t)
 					    (use-hyde nil))
   "Gather chunks with traditional RAG approach, no LLMs."
   (let ((chunks (gather-chunks-no-agents corpora user-query
 					  :past-chunks past-chunks
 					  :top-k top-k
+					  :use-rewrite use-rewrite
 					  :use-hyde use-hyde)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.

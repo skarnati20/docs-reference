@@ -1,4 +1,4 @@
-;;;; agents.lisp
+;;;; rag.lisp
 
 (in-package :docs-reference)
 
@@ -274,5 +274,27 @@ Rules:
 	(let ((new-chunks (remove-if (lambda (c) (member c past-chunks :test #'eq))
 				     chunks)))
 	  (cons (synthesize-answer user-query new-chunks :history history) chunks)))))
-    
-			    
+
+(defun run-rag (corpora user-query &key history
+					(past-chunks nil)
+					(agentic t)
+					(max-iterations 3)
+					(top-k 10)
+					(use-rewrite t)
+					(use-hyde nil))
+  "Answers USER-QUERY over CORPORA, using the agentic pipeline when AGENTIC and
+   the plain one otherwise. Returns a cons (ANSWER-STRING . CHUNKS)."
+  (if agentic
+      (agentic-rag corpora user-query
+		   :history history
+		   :past-chunks past-chunks
+		   :max-iterations max-iterations
+		   :top-k top-k
+		   :use-rewrite use-rewrite
+		   :use-hyde use-hyde)
+      (default-rag corpora user-query
+	:history history
+	:past-chunks past-chunks
+	:top-k top-k
+	:use-rewrite use-rewrite
+	:use-hyde use-hyde)))

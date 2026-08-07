@@ -9,11 +9,7 @@
 	       (:file "stream")
 	       (:file "content-types")
 	       (:file "fetcher")
-	       (:file "ollama-helper")
-	       ;; vector, local-storage, lemmatization and colbert define
-	       ;; primitives that ollama-embeddings and store call, so they
-	       ;; load first. colbert only handles text and raw vectors, never
-	       ;; the chunk structs, so it can sit below store without a cycle.
+	       (:file "helpers")
 	       (:file "vector")
 	       (:file "local-storage")
 	       (:file "lemmatization")
@@ -22,7 +18,7 @@
 	       (:file "store")
 	       (:file "search")
 	       (:file "ollama-chat")
-	       (:file "agents")
+	       (:file "rag")
 	       (:file "chat-session")
 	       (:file "docs-reference")
 	       (:file "bm25")

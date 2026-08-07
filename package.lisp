@@ -2,7 +2,27 @@
 
 (defpackage #:docs-reference
   (:use #:cl)
-  (:export #:register-base-link)
-  (:export #:docs-search)
-  (:export #:docs-search-direct)
-  (:export #:print-corpora))
+  ;; Registration
+  (:export #:register-link
+           #:register-link-async)
+  ;; Search
+  (:export #:find-docs
+           #:docs-search
+           #:docs-search-async
+           #:docs-chat
+           #:docs-chat-async)
+  ;; Short names
+  (:export #:rl
+           #:rla
+           #:ds
+           #:dsa
+           #:dc
+           #:dca)
+  ;; Printing
+  (:export #:print-links
+           #:print-corpora)
+  ;; Cleanup
+  (:export #:remove-link
+           #:remove-link-idx
+           #:clear-docs
+           #:clear-chat))

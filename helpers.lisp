@@ -1,4 +1,4 @@
-;;;; ollama-helper.lisp
+;;;; helpers.lisp
 
 (in-package #:docs-reference)
 

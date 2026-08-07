@@ -36,33 +36,9 @@
   (format-retrieved-chunks
    (search-corpora *corpora* query :top-k top-k)))
 
-(defun run-rag (query &key history
-			   (past-chunks nil)
-			   (agentic t)
-			   (max-iterations 3)
-			   (top-k 10)
-			   (use-rewrite t)
-			   (use-hyde nil))
-  "Answers QUERY over *CORPORA*, using the agentic pipeline when AGENTIC and
-   the plain one otherwise. Returns a cons (ANSWER-STRING . CHUNKS)."
-  (if agentic
-      (agentic-rag *corpora* query
-		   :history history
-		   :past-chunks past-chunks
-		   :max-iterations max-iterations
-		   :top-k top-k
-		   :use-rewrite use-rewrite
-		   :use-hyde use-hyde)
-      (default-rag *corpora* query
-	:history history
-	:past-chunks past-chunks
-	:top-k top-k
-	:use-rewrite use-rewrite
-	:use-hyde use-hyde)))
-
 (defun docs-search (query &rest options)
   "Searches by doing a direct search on all of *CORPORA*"
-  (car (apply #'run-rag query options)))
+  (car (apply #'run-rag *corpora* query options)))
 
 (defun docs-search-async (query &rest options)
   "Searches by doing a direct search on all of *CORPORA*
@@ -79,7 +55,7 @@
     (setf *chat-session* (make-chat-session)))
   (let* ((session *chat-session*)
 	 (history (chat-session-to-ollama-messages session))
-	 (result (apply #'run-rag query
+	 (result (apply #'run-rag *corpora* query
 			:history history
 			:past-chunks (chat-session-all-chunks session)
 			options))

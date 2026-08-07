@@ -64,7 +64,8 @@
       (cons user-query
 	    (when use-hyde (list (write-hyde-query user-query))))))
 
-(defun search-fanout (corpora sub-queries &key (top-k 10))
+(defun search-fanout (corpora sub-queries &key (top-k 10)
+					       (methods *default-search-methods*))
   "Run hybrid search across CORPORA for each of SUB-QUERIES and fuse the
    per-sub-query rankings with RRF, then cap the fused ranking at TOP-K.
    Each sub-search is unbounded so RRF sees full rankings and a chunk found
@@ -74,7 +75,7 @@
   (let ((fused
 	  (reciprocal-rank-fusion
 	   (loop for query in sub-queries
-		 collect (search-corpora corpora query)))))
+		 collect (search-corpora corpora query :methods methods)))))
     (if top-k
 	(subseq fused 0 (min top-k (length fused)))
 	fused)))
@@ -178,7 +179,8 @@ Rules:
 					      (max-iterations 3)
 					      (top-k 10)
 					      (use-rewrite t)
-					      (use-hyde nil))
+					      (use-hyde nil)
+					      (methods *default-search-methods*))
   "Retrieve/assess/refine over CORPORA for USER-QUERY; return the accumulated
    chunks once sufficient (or the best at the iteration cap), NIL if none.
    PAST-CHUNKS are unioned with a fresh search for USER-QUERY as the seed set."
@@ -196,7 +198,9 @@ Rules:
                   (format t "~%DEBUG gather-chunks: context INSUFFICIENT, refining...~%")
                   (format t "DEBUG gather-chunks: feedback: ~A~%" feedback)
                   (let* ((refined-queries (refine-queries user-query feedback))
-                         (new-chunks (search-fanout corpora refined-queries :top-k top-k))
+                         (new-chunks (search-fanout corpora refined-queries
+						    :top-k top-k
+						    :methods methods))
                          ;; Chunks are the stored slim objects, so eq identifies dupes.
                          (additions (remove-if (lambda (c) (member c all-chunks :test #'eq))
                                                new-chunks)))
@@ -205,7 +209,8 @@ Rules:
 				 (build-search-queries user-query
 						       :use-rewrite use-rewrite
 						       :use-hyde use-hyde)
-				 :top-k top-k))
+				 :top-k top-k
+				 :methods methods))
            (initial (append fresh
                             (remove-if (lambda (c) (member c fresh :test #'eq))
                                        past-chunks))))
@@ -218,7 +223,8 @@ Rules:
 					    (max-iterations 3)
 					    (top-k 10)
 					    (use-rewrite t)
-					    (use-hyde nil))
+					    (use-hyde nil)
+					    (methods *default-search-methods*))
   "Gather chunks then synthesize an answer. HISTORY threads to synthesis (nil =
    single-shot); PAST-CHUNKS are unioned into retrieval. Returns a cons
    (ANSWER-STRING . CHUNKS) - the full gathered chunk set, nil if none."
@@ -227,7 +233,8 @@ Rules:
 			       :max-iterations max-iterations
 			       :top-k top-k
 			       :use-rewrite use-rewrite
-			       :use-hyde use-hyde)))
+			       :use-hyde use-hyde
+			       :methods methods)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.
 	(cons (format nil "(No documents were used to answer this.)~%~%~A"
@@ -240,14 +247,16 @@ Rules:
 (defun gather-chunks-no-agents (corpora user-query &key (past-chunks nil)
 					                (top-k 10)
 					                (use-rewrite t)
-					                (use-hyde nil))
+					                (use-hyde nil)
+					                (methods *default-search-methods*))
   "Retrieves chunks without any LLM calls (except query rewriting). Searches CORPORA
    for relevant chunks for USER-QUERY."
   (let* ((fresh (search-fanout corpora
 			       (build-search-queries user-query
 						     :use-rewrite use-rewrite
 						     :use-hyde use-hyde)
-			       :top-k nil))
+			       :top-k nil
+			       :methods methods))
 	 (initial (append fresh
 			  (remove-if (lambda (c) (member c fresh :test #'eq))
 				     past-chunks))))
@@ -259,13 +268,15 @@ Rules:
 					    (past-chunks nil)
 					    (top-k 10)
 					    (use-rewrite t)
-					    (use-hyde nil))
+					    (use-hyde nil)
+					    (methods *default-search-methods*))
   "Gather chunks with traditional RAG approach, no LLMs."
   (let ((chunks (gather-chunks-no-agents corpora user-query
 					  :past-chunks past-chunks
 					  :top-k top-k
 					  :use-rewrite use-rewrite
-					  :use-hyde use-hyde)))
+					  :use-hyde use-hyde
+					  :methods methods)))
     (if (null chunks)
 	;; No relevant docs: fall back to a plain chat, flagged up front.
 	(cons (format nil "(No documents were used to answer this.)~%~%~A"
@@ -281,7 +292,8 @@ Rules:
 					(max-iterations 3)
 					(top-k 10)
 					(use-rewrite t)
-					(use-hyde nil))
+					(use-hyde nil)
+					(methods *default-search-methods*))
   "Answers USER-QUERY over CORPORA, using the agentic pipeline when AGENTIC and
    the plain one otherwise. Returns a cons (ANSWER-STRING . CHUNKS)."
   (if agentic
@@ -291,10 +303,12 @@ Rules:
 		   :max-iterations max-iterations
 		   :top-k top-k
 		   :use-rewrite use-rewrite
-		   :use-hyde use-hyde)
+		   :use-hyde use-hyde
+		   :methods methods)
       (default-rag corpora user-query
 	:history history
 	:past-chunks past-chunks
 	:top-k top-k
 	:use-rewrite use-rewrite
-	:use-hyde use-hyde)))
+	:use-hyde use-hyde
+	:methods methods)))

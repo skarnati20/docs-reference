@@ -41,12 +41,14 @@
         (cons "recall" (mean-metric :recall results))
         (cons "hitRate" (mean-metric :hit results))))
 
-(defun report-data (corpus top-k results run-notes)
+(defun report-data (corpus top-k results run-notes &optional config)
   "Build the report as a nested alist/vector that cl-json encodes straight
-   to a JSON object (arrays are vectors so cl-json emits them as JSON arrays)."
+   to a JSON object (arrays are vectors so cl-json emits them as JSON arrays).
+   CONFIG records the knobs the run used, so a report identifies itself."
   (list (cons "corpus" corpus)
         (cons "topK" top-k)
         (cons "notes" run-notes)
+        (cons "config" config)
         (cons "overall" (metrics-alist results))
         (cons "byType"
               (loop for type in '("exact" "conceptual" "broad")
@@ -89,66 +91,153 @@
       (dolist (r misses)
         (format t "  [~a] ~a~%" (getf r :type) (getf r :query))))))
 
-(defun filter-by-gap (ranked &key (max-gap 10.0) (min-keep 5))
-  "Filters a ranked list to those items whose score is within MAX-GAP
-   of RANKED's top score. Keeps a minimum of MIN-KEEP items."
-  (let* ((best (reduce #'max ranked :key #'cdr))
-	 (kept (remove-if (lambda (x) (< (cdr x) (- best max-gap))) ranked)))
-    (if (< (length kept) min-keep)
-        (subseq (sort (copy-list ranked) #'> :key #'cdr)
-                0 (min min-keep (length ranked)))
-        kept)))
 
-(defun optimize-chunks (query chunks top-k mode &key (max-gap 10.0))
-  "Produce the final ranked chunk list for one eval query.
-   Three modes: (1) None, (2) Re-Rank, (3) Cross-Encoder Filter"
-  (ecase mode
-	(:re-rank (mapcar #'car
-			   (rerank-chunks query
-					  (subseq chunks 0 (min (* top-k 5) (length chunks)))
-					  :top-k top-k)))
-	(:filter (let* ((shortlist (subseq chunks 0 (min (* top-k 5) (length chunks))))
-			(ranked-chunks (rank-chunks-in-order query shortlist))
-			(kept (filter-by-gap ranked-chunks :max-gap max-gap)))
-		   (mapcar #'car (subseq kept 0 (min top-k (length kept))))))
-	(:none (if top-k
-		   (subseq chunks 0 (min top-k (length chunks)))
-		   chunks))))
+;;;; Profiles
+
+
+(defparameter *eval-profiles*
+  '((:name "hybrid"          :methods (:dense :bm25))
+    (:name "dense-only"      :methods (:dense))
+    (:name "bm25-only"       :methods (:bm25))
+    (:name "colbert-only"    :methods (:colbert))
+    (:name "dense+colbert"   :methods (:dense :colbert))
+    (:name "all-methods"     :methods :all)
+    (:name "dense+rewrite"   :methods (:dense) :use-rewrite t)
+    (:name "dense+hyde"      :methods (:dense) :use-hyde t)
+    (:name "dense+rerank"    :methods (:dense) :rerank t :rerank-end 30)
+    (:name "hybrid+rewrite"  :methods (:dense :bm25) :use-rewrite t)
+    (:name "hybrid+hyde"     :methods (:dense :bm25) :use-hyde t)
+    (:name "hybrid+rerank"   :methods (:dense :bm25) :rerank t :rerank-end 30))
+  "Retrieval configurations to compare. Each is a :NAME plus the knobs
+   RUN-EVAL passes to GATHER-CHUNKS-NO-AGENTS.")
+
+(defun profile-knobs (profile)
+  "PROFILE without its :NAME, as an argument list for RUN-EVAL."
+  (loop for (key value) on profile by #'cddr
+	unless (eq key :name)
+	  append (list key value)))
+
+(defun config-alist (top-k methods use-rewrite use-hyde rerank rerank-start rerank-end)
+  "The knobs a run used, recorded in its report so runs are self-describing."
+  (list (cons "topK" top-k)
+	(cons "methods" (coerce (mapcar #'string-downcase
+					(mapcar #'symbol-name
+						(resolve-search-methods methods)))
+				'vector))
+	(cons "useRewrite" (and use-rewrite t))
+	(cons "useHyde" (and use-hyde t))
+	(cons "rerank" (and rerank t))
+	(cons "rerankStart" rerank-start)
+	(cons "rerankEnd" rerank-end)))
+
+
+;;;; Running
+
 
 (defun run-eval (corpora eval-file-path
-                 &key (top-k 10) (output-file nil) (run-notes nil) (mode :none) (max-gap 10.0))
-  "Evaluate how well SEARCH-CORPORA ranks chunks for the queries in
-   EVAL-FILE-PATH (a JSON file). Writes a JSON report (overall + by-type
-   MRR / Recall@k / Hit@k, plus per-query results) to stdout and, if given,
-   OUTPUT-FILE. Returns the per-query result plists."
+		 &key (top-k 10)
+		      (methods *default-search-methods*)
+		      (use-rewrite nil)
+		      (use-hyde nil)
+		      (rerank nil)
+		      (rerank-start 0)
+		      (rerank-end 30)
+		      (output-file nil)
+		      (run-notes nil)
+		      (quiet nil))
+  "Evaluate how well GATHER-CHUNKS-NO-AGENTS ranks chunks for the queries in
+   EVAL-FILE-PATH (a JSON file) under the given knobs. Writes a JSON report
+   (config, overall and by-type MRR / Recall@k / Hit@k, plus per-query results)
+   to OUTPUT-FILE when given. Returns the per-query result plists."
   (with-open-file (stream eval-file-path)
     (let* ((data (cl-json:decode-json stream))
-           (corpus (cdr (assoc :corpus data)))
-           (base-url (cdr (assoc :base-url data)))
-           (queries (cdr (assoc :queries data)))
-           (results nil))
+	   (corpus (cdr (assoc :corpus data)))
+	   (base-url (cdr (assoc :base-url data)))
+	   (queries (cdr (assoc :queries data)))
+	   (results nil))
       (dolist (query-pairs queries)
-        (let* ((query (cdr (assoc :query query-pairs)))
-               (type (cdr (assoc :type query-pairs)))
-               (ref-pages (cdr (assoc :pages query-pairs)))
-               (ref-urls (mapcar (lambda (p) (uiop:strcat base-url p)) ref-pages))
-               (chunks (handler-case (search-corpora corpora query)
-                         (error (e)
-                           (format t "  ! query failed (~a): ~a~%" query e)
-                           nil)))
-               (final-chunks (optimize-chunks query chunks top-k mode
-                                             :max-gap max-gap))
-               (ret-urls (mapcar #'document-chunk-slim-url final-chunks)))
-          (push (append (list :query query :type type)
-                        (calculate-score ref-urls ret-urls))
-                results)))
+	(let* ((query (cdr (assoc :query query-pairs)))
+	       (type (cdr (assoc :type query-pairs)))
+	       (ref-pages (cdr (assoc :pages query-pairs)))
+	       (ref-urls (mapcar (lambda (p) (uiop:strcat base-url p)) ref-pages))
+	       (chunks (handler-case
+			   (gather-chunks-no-agents corpora query
+						    :top-k top-k
+						    :methods methods
+						    :use-rewrite use-rewrite
+						    :use-hyde use-hyde
+						    :rerank rerank
+						    :rerank-start rerank-start
+						    :rerank-end rerank-end)
+			 (error (e)
+			   (format t "  ! query failed (~a): ~a~%" query e)
+			   nil)))
+	       (ret-urls (mapcar #'document-chunk-slim-url chunks)))
+	  (push (append (list :query query :type type)
+			(calculate-score ref-urls ret-urls))
+		results)))
       (setf results (nreverse results))
       (let ((json (cl-json:encode-json-to-string
-                   (report-data corpus top-k results run-notes))))
-        (write-line json)
-        (when output-file
-          (with-open-file (out output-file :direction :output
-                                           :if-exists :supersede
-                                           :if-does-not-exist :create)
-            (write-line json out)))
-        (format-results results)))))
+		   (report-data corpus top-k results run-notes
+				(config-alist top-k methods use-rewrite use-hyde
+					      rerank rerank-start rerank-end)))))
+	(when output-file
+	  (with-open-file (out output-file :direction :output
+					   :if-exists :supersede
+					   :if-does-not-exist :create)
+	    (write-line json out)))
+	(unless quiet
+	  (write-line json)
+	  (format-results results)))
+      results)))
+
+(defun run-eval-profiles (corpora eval-file-path
+			  &key (profiles *eval-profiles*)
+			       (top-k 10)
+			       (output-dir nil)
+			       (rank-by :recall))
+  "Run every profile in PROFILES over the same query set and print a comparison
+   ordered best-first by RANK-BY (:recall, :rr or :hit). Returns a list of
+   (:name NAME :results RESULTS) in that order."
+  (let ((rows nil))
+    (dolist (profile profiles)
+      (let* ((name (getf profile :name))
+	     (output-file (when output-dir
+			    (merge-pathnames (format nil "results-~a.json" name)
+					     (uiop:ensure-directory-pathname output-dir)))))
+	(format t "~&running profile ~a ...~%" name)
+	(push (list :name name
+		    :results (apply #'run-eval corpora eval-file-path
+				    :top-k top-k
+				    :run-notes name
+				    :output-file output-file
+				    :quiet t
+				    (profile-knobs profile)))
+	      rows)))
+    (let ((ranked (sort (nreverse rows) #'>
+			:key (lambda (row) (mean-metric rank-by (getf row :results))))))
+      (format-profile-comparison ranked top-k rank-by)
+      ranked)))
+
+(defun format-profile-comparison (ranked top-k rank-by)
+  "Print RANKED profiles as a table, best-first, and name the winner."
+  (format t "~&~%=== Profile comparison (top-k ~a, ranked by ~a) ===~%" top-k rank-by)
+  (format t "  ~18@a ~9@a ~9@a ~9@a ~9@a ~9@a~%"
+	  "profile" "MRR" "Recall" "Hit" "exact-R" "concep-R")
+  (dolist (row ranked)
+    (let* ((results (getf row :results))
+	   (subset (lambda (type)
+		     (remove-if-not (lambda (r) (string-equal (getf r :type) type))
+				    results))))
+      (format t "  ~18@a ~9,3f ~9,3f ~9,3f ~9,3f ~9,3f~%"
+	      (getf row :name)
+	      (mean-metric :rr results)
+	      (mean-metric :recall results)
+	      (mean-metric :hit results)
+	      (mean-metric :recall (funcall subset "exact"))
+	      (mean-metric :recall (funcall subset "conceptual")))))
+  (when ranked
+    (format t "~%best by ~a: ~a (~,3f)~%"
+	    rank-by
+	    (getf (first ranked) :name)
+	    (mean-metric rank-by (getf (first ranked) :results)))))
